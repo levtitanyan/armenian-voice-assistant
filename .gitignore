@@ -1,0 +1,7 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+voice_input/
+tts_output/
+.DS_Store
