@@ -5,7 +5,7 @@ This project records your voice in Armenian, transcribes it, gets a Gemini respo
 ## 1) Setup
 
 ```bash
-cd /Users/levon/Downloads/STT-TTS
+cd /path/to/your/project
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -26,6 +26,9 @@ brew install ffmpeg
 
 ## 2) Run
 
+Run the script that orchestrates the full pipeline (STT -> Gemini -> TTS).
+In this project, that script is `STTT.py`.
+
 ```bash
 source .venv/bin/activate
 python STTT.py
@@ -44,3 +47,5 @@ Press Enter to stop recording.
 python STTT.py --no-play
 python STTT.py --input-file my_input.wav --output-file my_reply.mp3
 ```
+
+If your full-pipeline script has a different filename, run that file instead of `STTT.py`.
