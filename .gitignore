@@ -5,3 +5,11 @@ __pycache__/
 voice_input/
 tts_output/
 .DS_Store
+mp3_learning_data/
+data/call_recordings/
+data/transcripts/
+
+data/call_records.rar
+data/*.xlsx
+data/sas_knowledge.json
+data/.DS_Store
