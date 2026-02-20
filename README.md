@@ -15,9 +15,6 @@ This project records Armenian speech, transcribes it with ElevenLabs STT, genera
 | `.gitignore` | Files/folders excluded from Git. |
 | `voice_input/` | Saved microphone recordings (`.wav`). |
 | `tts_output/` | Saved assistant replies (`.mp3`). |
-| `data/call_records.rar` | Optional dataset archive (local only). |
-| `data/sas_knowledge.json` | Optional dataset file (local only, not used by current code). |
-| `data/Հաճախակի տրվող հարցեր.xlsx` | Optional FAQ data file (local only). |
 
 ## 2) Setup
 
