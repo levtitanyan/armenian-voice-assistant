@@ -1,1 +1,1 @@
-# Script package for assistant entrypoints and helpers.
+"""Top-level package for Armenian voice assistant scripts."""

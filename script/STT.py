@@ -1,3 +1,7 @@
+"""Speech-to-text helpers: microphone recording and Armenian transcription."""
+
+from __future__ import annotations
+
 import os
 import select
 import sys
@@ -9,24 +13,23 @@ import soundfile as sf
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+try:
+    from .common import PROJECT_ROOT, display_path, is_mostly_armenian
+except ImportError:  # pragma: no cover - supports direct script execution
+    from common import PROJECT_ROOT, display_path, is_mostly_armenian
+
 VOICE_INPUT_DIR = PROJECT_ROOT / "data" / "conversations" / "voice_input"
 SAMPLE_RATE = 16000
+MIN_ARMENIAN_RATIO = 0.45
+MIN_ARMENIAN_LETTERS = 2
 
 
 class StopConversationRequested(Exception):
     """Raised when the user presses Esc during recording."""
 
 
-def _display_path(path: Path) -> str:
-    try:
-        relative = path.resolve().relative_to(PROJECT_ROOT)
-        return f"{PROJECT_ROOT.name}/{relative.as_posix()}"
-    except ValueError:
-        return str(path)
-
-
 def _wait_for_recording_key() -> str:
+    """Wait for Enter (finish turn) or Esc (stop conversation)."""
     if not sys.stdin.isatty():
         input()
         return "enter"
@@ -57,6 +60,7 @@ def _wait_for_recording_key() -> str:
 
 
 def _get_elevenlabs_client() -> ElevenLabs:
+    """Create an ElevenLabs client from `.env`/environment variables."""
     load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
     api_key = os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY")
     if not api_key:
@@ -69,6 +73,7 @@ def record_voice_to_wav(
     sample_rate: int = SAMPLE_RATE,
     show_saved_message: bool = False,
 ) -> Path:
+    """Record microphone audio until Enter/Esc and save a WAV file."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     frames: list[np.ndarray] = []
 
@@ -90,11 +95,12 @@ def record_voice_to_wav(
     audio_np = np.concatenate(frames, axis=0)
     sf.write(output_path.as_posix(), audio_np, sample_rate, subtype="PCM_16")
     if show_saved_message:
-        print(f"Saved voice recording: {_display_path(output_path)}")
+        print(f"Saved voice recording: {display_path(output_path)}")
     return output_path
 
 
 def transcribe_armenian(audio_path: Path, model_id: str = "scribe_v2") -> str:
+    """Transcribe an audio file and return Armenian text only."""
     client = _get_elevenlabs_client()
     with audio_path.open("rb") as audio_file:
         transcription = client.speech_to_text.convert(
@@ -106,10 +112,23 @@ def transcribe_armenian(audio_path: Path, model_id: str = "scribe_v2") -> str:
     text = getattr(transcription, "text", None)
     if not text:
         text = str(transcription)
-    return text.strip()
+
+    cleaned = text.strip()
+    if not cleaned:
+        return ""
+
+    if not is_mostly_armenian(
+        cleaned,
+        min_ratio=MIN_ARMENIAN_RATIO,
+        min_armenian_letters=MIN_ARMENIAN_LETTERS,
+    ):
+        return ""
+
+    return cleaned
 
 
 def record_and_transcribe_armenian(filename: str = "mic.wav") -> tuple[Path, str]:
+    """Convenience helper: record one turn and transcribe it."""
     output_path = VOICE_INPUT_DIR / filename
     wav_path = record_voice_to_wav(output_path=output_path)
     transcript = transcribe_armenian(wav_path)
@@ -117,8 +136,9 @@ def record_and_transcribe_armenian(filename: str = "mic.wav") -> tuple[Path, str
 
 
 def main() -> None:
+    """Manual CLI smoke test for local development."""
     wav_path, transcript = record_and_transcribe_armenian()
-    print(f"Transcription from {_display_path(wav_path)}:")
+    print(f"Transcription from {display_path(wav_path)}:")
     print(transcript)
 
 

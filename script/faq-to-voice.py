@@ -1,3 +1,7 @@
+"""Generate one prebuilt MP3 file per FAQ answer."""
+
+from __future__ import annotations
+
 import argparse
 import json
 from datetime import datetime
@@ -5,30 +9,17 @@ from pathlib import Path
 
 try:
     from .TTS import synthesize_armenian_mp3
+    from .common import display_path, resolve_project_path
 except ImportError:  # pragma: no cover - supports direct script execution
     from TTS import synthesize_armenian_mp3
+    from common import display_path, resolve_project_path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_FAQ_JSON = "data/faq.json"
 DEFAULT_OUTPUT_DIR = "data/voice-answers"
 
 
-def _display_path(path: Path) -> str:
-    try:
-        relative = path.resolve().relative_to(PROJECT_ROOT)
-        return f"{PROJECT_ROOT.name}/{relative.as_posix()}"
-    except ValueError:
-        return str(path)
-
-
-def _resolve_project_path(path_value: str) -> Path:
-    path = Path(path_value)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
-    return path.resolve()
-
-
 def _load_faq_answers(faq_json_path: Path) -> list[dict[str, int | str]]:
+    """Load deterministic FAQ answer list (`id` + `answer`) from JSON."""
     if not faq_json_path.exists():
         raise FileNotFoundError(f"FAQ JSON not found: {faq_json_path}")
 
@@ -67,10 +58,12 @@ def _load_faq_answers(faq_json_path: Path) -> list[dict[str, int | str]]:
     answers = [{"id": faq_id, "answer": answer_by_id[faq_id]} for faq_id in sorted(answer_by_id)]
     if not answers:
         raise RuntimeError(f"No valid FAQ answers found in: {faq_json_path}")
+
     return answers
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for FAQ-to-voice generation."""
     parser = argparse.ArgumentParser(
         description=(
             "Generate MP3 files for FAQ answers from data/faq.json. "
@@ -106,9 +99,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Generate FAQ answer MP3 files and write a manifest."""
     args = parse_args()
-    faq_json_path = _resolve_project_path(args.faq_json)
-    output_dir = _resolve_project_path(args.output_dir)
+    faq_json_path = resolve_project_path(args.faq_json)
+    output_dir = resolve_project_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     answers = _load_faq_answers(faq_json_path)
@@ -139,13 +133,13 @@ def main() -> None:
             created += 1
             status = "created"
 
-        print(f"[{index}/{len(answers)}] {status}: FAQ #{faq_id} -> {_display_path(output_path)}")
+        print(f"[{index}/{len(answers)}] {status}: FAQ #{faq_id} -> {display_path(output_path)}")
         manifest_items.append({"id": faq_id, "file": output_filename, "answer": answer})
 
     manifest_path = output_dir / "index.json"
     manifest_payload = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "faq_json": _display_path(faq_json_path),
+        "faq_json": display_path(faq_json_path),
         "total_answers": len(answers),
         "created": created,
         "skipped": skipped,
@@ -156,9 +150,9 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print(f"FAQ JSON: {_display_path(faq_json_path)}")
-    print(f"Voice answers folder: {_display_path(output_dir)}")
-    print(f"Manifest: {_display_path(manifest_path)}")
+    print(f"FAQ JSON: {display_path(faq_json_path)}")
+    print(f"Voice answers folder: {display_path(output_dir)}")
+    print(f"Manifest: {display_path(manifest_path)}")
     print(f"Created: {created}, Skipped: {skipped}, Total: {len(answers)}")
 
 

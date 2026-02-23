@@ -1,3 +1,7 @@
+"""Build `data/knowledge.json` from call recordings and transcript files."""
+
+from __future__ import annotations
+
 import argparse
 import json
 import re
@@ -5,11 +9,12 @@ from pathlib import Path
 
 try:
     from .STT import transcribe_armenian
+    from .common import display_path, resolve_project_path
 except ImportError:  # pragma: no cover - supports direct script execution
     from STT import transcribe_armenian
+    from common import display_path, resolve_project_path
 
 AUDIO_EXTENSIONS = {".wav", ".m4a", ".mp3", ".ogg", ".flac", ".aac", ".mp4"}
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CALL_KEY_PATTERN = re.compile(r"(\d{6,})_(\d{6})_(\d{6})")
 TRANSCRIPT_PREFIX_PATTERN = re.compile(r"^(\d+)_")
 DEFAULT_SOURCE_TYPE = "call_recording_transcript"
@@ -18,15 +23,8 @@ DEFAULT_TRANSCRIPTS_DIR = "data/transcripts"
 DEFAULT_KNOWLEDGE_JSON = "data/knowledge.json"
 
 
-def display_path(path: Path) -> str:
-    try:
-        relative = path.resolve().relative_to(PROJECT_ROOT)
-        return f"{PROJECT_ROOT.name}/{relative.as_posix()}"
-    except ValueError:
-        return str(path)
-
-
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for dataset build range selection."""
     parser = argparse.ArgumentParser(
         description=(
             "Build data/knowledge.json from data/call_records and data/transcripts. "
@@ -48,14 +46,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_path(path_value: str) -> Path:
-    path = Path(path_value)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
-    return path.resolve()
-
-
 def collect_audio_files(audio_dir: Path) -> list[Path]:
+    """Collect all supported audio files recursively, sorted by path."""
     if not audio_dir.exists():
         raise FileNotFoundError(f"Audio directory not found: {audio_dir}")
 
@@ -68,6 +60,7 @@ def collect_audio_files(audio_dir: Path) -> list[Path]:
 
 
 def extract_call_key(filename: str) -> str | None:
+    """Extract a stable call key from filename when pattern matches."""
     match = CALL_KEY_PATTERN.search(filename)
     if not match:
         return None
@@ -75,10 +68,12 @@ def extract_call_key(filename: str) -> str | None:
 
 
 def normalize_stem(name: str) -> str:
+    """Normalize base filename for transcript naming consistency."""
     return re.sub(r"\s+", "_", name.strip())
 
 
 def load_knowledge_items(knowledge_json: Path, overwrite: bool) -> list[dict]:
+    """Load existing knowledge items unless overwrite is enabled."""
     if overwrite or not knowledge_json.exists():
         return []
 
@@ -94,6 +89,7 @@ def load_knowledge_items(knowledge_json: Path, overwrite: bool) -> list[dict]:
 
 
 def existing_audio_paths(items: list[dict]) -> set[str]:
+    """Return absolute audio paths already present in knowledge items."""
     paths: set[str] = set()
     for item in items:
         audio_path = None
@@ -111,10 +107,12 @@ def existing_audio_paths(items: list[dict]) -> set[str]:
 
         if audio_path:
             paths.add(str(Path(audio_path).resolve()))
+
     return paths
 
 
 def next_item_number(items: list[dict]) -> int:
+    """Find next incremental numeric suffix for new knowledge items."""
     max_num = 0
     for item in items:
         for key in ("item_id", "id"):
@@ -126,6 +124,7 @@ def next_item_number(items: list[dict]) -> int:
 
 
 def build_transcript_key_index(transcripts_dir: Path) -> dict[str, Path]:
+    """Index existing transcript files by extracted call key."""
     index: dict[str, Path] = {}
     if not transcripts_dir.exists():
         return index
@@ -142,6 +141,7 @@ def find_transcript_for_audio(
     transcripts_dir: Path,
     transcript_key_index: dict[str, Path],
 ) -> Path | None:
+    """Find matching transcript by call key or normalized file stem."""
     key = extract_call_key(audio_path.name)
     if key and key in transcript_key_index:
         return transcript_key_index[key]
@@ -154,10 +154,12 @@ def find_transcript_for_audio(
     for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
+
     return None
 
 
 def next_transcript_number(transcripts_dir: Path) -> int:
+    """Get next numeric prefix for newly generated transcript files."""
     max_num = 0
     if not transcripts_dir.exists():
         return 1
@@ -167,10 +169,12 @@ def next_transcript_number(transcripts_dir: Path) -> int:
         if not match:
             continue
         max_num = max(max_num, int(match.group(1)))
+
     return max_num + 1
 
 
 def create_transcript_path(audio_path: Path, transcripts_dir: Path, next_num: int) -> tuple[Path, int]:
+    """Create a unique transcript path and return updated counter."""
     base = normalize_stem(audio_path.stem)
     candidate = transcripts_dir / f"{next_num:04d}_{base}.txt"
 
@@ -182,20 +186,21 @@ def create_transcript_path(audio_path: Path, transcripts_dir: Path, next_num: in
 
 
 def read_transcript(path: Path) -> str:
+    """Read transcript text from file and trim surrounding whitespace."""
     return path.read_text(encoding="utf-8").strip()
 
 
 def main() -> None:
+    """Build or extend `knowledge.json` from call recordings."""
     args = parse_args()
 
-    audio_dir = resolve_path(DEFAULT_AUDIO_DIR)
-    transcripts_dir = resolve_path(DEFAULT_TRANSCRIPTS_DIR)
-    knowledge_json = resolve_path(DEFAULT_KNOWLEDGE_JSON)
+    audio_dir = resolve_project_path(DEFAULT_AUDIO_DIR)
+    transcripts_dir = resolve_project_path(DEFAULT_TRANSCRIPTS_DIR)
+    knowledge_json = resolve_project_path(DEFAULT_KNOWLEDGE_JSON)
 
     transcripts_dir.mkdir(parents=True, exist_ok=True)
     knowledge_json.parent.mkdir(parents=True, exist_ok=True)
 
-    skip_existing = True
     items = load_knowledge_items(knowledge_json=knowledge_json, overwrite=False)
     existing = existing_audio_paths(items)
     next_id = next_item_number(items)
@@ -219,7 +224,7 @@ def main() -> None:
 
     for index, audio_path in enumerate(audio_files, start=1):
         audio_abs = str(audio_path.resolve())
-        if skip_existing and audio_abs in existing:
+        if audio_abs in existing:
             skipped += 1
             continue
 
@@ -272,9 +277,7 @@ def main() -> None:
         items.append(item)
         next_id += 1
         written += 1
-
-        if skip_existing:
-            existing.add(audio_abs)
+        existing.add(audio_abs)
 
     knowledge_json.write_text(
         json.dumps(items, ensure_ascii=False, indent=2),

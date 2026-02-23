@@ -1,3 +1,7 @@
+"""Main voice assistant loop: STT -> Gemini FAQ match -> fallback generation -> TTS."""
+
+from __future__ import annotations
+
 import argparse
 import json
 from datetime import datetime
@@ -5,52 +9,43 @@ from pathlib import Path
 
 try:
     from .STT import StopConversationRequested, record_voice_to_wav, transcribe_armenian
-    from .TTS import speak_armenian
-    from .gemini import gemini_answer_armenian
+    from .TTS import play_prebuilt_audio, speak_armenian
+    from .common import PROJECT_ROOT, display_path, resolve_project_path
+    from .gemini import find_similar_faq_for_question, gemini_answer_armenian
 except ImportError:  # pragma: no cover - supports direct script execution
     from STT import StopConversationRequested, record_voice_to_wav, transcribe_armenian
-    from TTS import speak_armenian
-    from gemini import gemini_answer_armenian
+    from TTS import play_prebuilt_audio, speak_armenian
+    from common import PROJECT_ROOT, display_path, resolve_project_path
+    from gemini import find_similar_faq_for_question, gemini_answer_armenian
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONVERSATIONS_DIR = PROJECT_ROOT / "data" / "conversations"
 CONVERSATION_PREFIX = "Conversation_"
-KNOWLEDGE_JSON_FILE = "data/knowledge.json"
-
-
-def _display_path(path: Path) -> str:
-    try:
-        relative = path.resolve().relative_to(PROJECT_ROOT)
-        return f"{PROJECT_ROOT.name}/{relative.as_posix()}"
-    except ValueError:
-        return str(path)
+DEFAULT_KNOWLEDGE_JSON = "data/knowledge.json"
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for assistant runtime configuration."""
     parser = argparse.ArgumentParser(
         description=(
             "Looping Armenian voice assistant. "
-            "Loads data/knowledge.json as knowledge context and keeps listening until you stop."
+            "Loads data/knowledge.json as generation context and listens until stopped."
         )
+    )
+    parser.add_argument(
+        "--knowledge-json",
+        default=DEFAULT_KNOWLEDGE_JSON,
+        help=f"Path to knowledge JSON (default: {DEFAULT_KNOWLEDGE_JSON})",
     )
     return parser.parse_args()
 
 
-def _resolve_project_path(path_value: str) -> Path:
-    path = Path(path_value)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
-    return path.resolve()
-
-
 def _next_conversation_directory() -> Path:
+    """Create and return the next numbered conversation directory."""
     CONVERSATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     max_index = 0
     for path in CONVERSATIONS_DIR.iterdir():
-        if not path.is_dir():
-            continue
-        if not path.name.startswith(CONVERSATION_PREFIX):
+        if not path.is_dir() or not path.name.startswith(CONVERSATION_PREFIX):
             continue
         suffix = path.name[len(CONVERSATION_PREFIX) :]
         if suffix.isdigit():
@@ -60,6 +55,7 @@ def _next_conversation_directory() -> Path:
 
 
 def _load_knowledge_context(knowledge_path: Path) -> str:
+    """Load knowledge JSON and convert it into a prompt-ready text block."""
     if not knowledge_path.exists():
         raise FileNotFoundError(f"Knowledge JSON not found: {knowledge_path}")
 
@@ -74,7 +70,8 @@ def _load_knowledge_context(knowledge_path: Path) -> str:
                 text = str(item.get("text", json.dumps(item, ensure_ascii=False)))
                 blocks.append(f"[{idx}] source={source}\n{text}")
             else:
-                blocks.append(f"[{idx}]\n{str(item)}")
+                blocks.append(f"[{idx}]\n{item}")
+
         if not blocks:
             raise RuntimeError(f"Knowledge JSON list is empty: {knowledge_path}")
         return "\n\n".join(blocks)
@@ -86,6 +83,7 @@ def _load_knowledge_context(knowledge_path: Path) -> str:
 
 
 def _build_history_block(history: list[dict], max_turns: int = 20) -> str:
+    """Serialize recent turns into a compact prompt history block."""
     if not history:
         return "(no previous turns yet)"
 
@@ -99,16 +97,13 @@ def _build_history_block(history: list[dict], max_turns: int = 20) -> str:
     return "\n".join(lines)
 
 
-def _build_prompt(
-    user_text: str,
-    knowledge_context: str,
-    history: list[dict],
-) -> str:
+def _build_generation_prompt(user_text: str, knowledge_context: str, history: list[dict]) -> str:
+    """Build fallback-generation prompt with knowledge and session context."""
     history_block = _build_history_block(history)
     return (
         "Use the JSON knowledge below as source context. "
-        "Use the CURRENT SESSION conversation history to keep continuity. "
-        "If a detail is not present, say that clearly.\n\n"
+        "Use current conversation history for continuity. "
+        "If a detail is missing, say that clearly.\n\n"
         f"KNOWLEDGE JSON:\n{knowledge_context}\n\n"
         f"CURRENT SESSION CONVERSATION:\n{history_block}\n\n"
         f"CURRENT USER INPUT:\n{user_text}"
@@ -122,6 +117,7 @@ def _save_conversation_json(
     history: list[dict],
     started_at: datetime,
 ) -> None:
+    """Persist session metadata and all turns to `conversation.json`."""
     conversation_file.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "conversation_id": conversation_dir.name,
@@ -138,9 +134,11 @@ def _save_conversation_json(
 
 
 def main() -> None:
-    parse_args()
-    knowledge_path = _resolve_project_path(KNOWLEDGE_JSON_FILE)
+    """Run the interactive assistant loop until Esc/interrupt."""
+    args = parse_args()
+    knowledge_path = resolve_project_path(args.knowledge_json)
     knowledge_context = _load_knowledge_context(knowledge_path)
+
     history: list[dict] = []
     started_at = datetime.now()
 
@@ -151,8 +149,8 @@ def main() -> None:
     voice_input_dir.mkdir(parents=True, exist_ok=True)
     tts_output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Loaded knowledge JSON: {_display_path(knowledge_path)}")
-    print(f"Conversation folder: {_display_path(conversation_dir)}")
+    print(f"Loaded knowledge JSON: {display_path(knowledge_path)}")
+    print(f"Conversation folder: {display_path(conversation_dir)}")
     print("Loop started.")
     print("Press Enter to finish a turn. Press Esc while recording to stop and save conversation.")
 
@@ -174,31 +172,79 @@ def main() -> None:
             if not user_text:
                 print("Empty transcription. Try again.")
                 continue
+
             print(f"Դուք: {user_text}")
 
-            prompt_with_context = _build_prompt(
-                user_text=user_text,
-                knowledge_context=knowledge_context,
-                history=history,
-            )
-            answer_text = gemini_answer_armenian(prompt_with_context)
-            print(f"SAS HR: {answer_text}")
+            response_source = "gemini_generated"
+            voice_source = "tts_generated"
+            voice_faq_id: int | None = None
+            voice_match_score: float | None = None
 
-            speak_armenian(
-                text=answer_text,
-                output_filename=output_file,
-                output_path=tts_output_dir / output_file,
-                show_saved_message=False,
-            )
+            faq_match: dict[str, int | str | float | Path] | None
+            try:
+                faq_match = find_similar_faq_for_question(user_text)
+            except Exception as exc:  # noqa: BLE001
+                print(f"FAQ match failed; falling back to generation: {exc}")
+                faq_match = None
+
+            if faq_match:
+                answer_text = str(faq_match.get("faq_answer", "")).strip()
+                voice_faq_id = int(faq_match.get("faq_id", 0))
+                voice_match_score = float(faq_match.get("score", 0.0))
+                response_source = "faq_match"
+
+                if voice_faq_id > 0:
+                    print(f"SAS HR (FAQ #{voice_faq_id}): {answer_text}")
+                else:
+                    print(f"SAS HR (FAQ): {answer_text}")
+
+                matched_voice_path = faq_match.get("voice_path")
+                if isinstance(matched_voice_path, Path):
+                    play_prebuilt_audio(
+                        audio_path=matched_voice_path,
+                        output_path=tts_output_dir / output_file,
+                        playback=True,
+                        show_used_message=True,
+                    )
+                    voice_source = "faq_prebuilt"
+                else:
+                    print("Validated pre-recorded FAQ voice not found; generating TTS from FAQ answer.")
+                    speak_armenian(
+                        text=answer_text,
+                        output_filename=output_file,
+                        output_path=tts_output_dir / output_file,
+                        show_saved_message=False,
+                    )
+                    voice_source = "tts_generated_from_faq"
+            else:
+                generation_prompt = _build_generation_prompt(
+                    user_text=user_text,
+                    knowledge_context=knowledge_context,
+                    history=history,
+                )
+                answer_text = gemini_answer_armenian(generation_prompt)
+                print(f"SAS HR: {answer_text}")
+                speak_armenian(
+                    text=answer_text,
+                    output_filename=output_file,
+                    output_path=tts_output_dir / output_file,
+                    show_saved_message=False,
+                )
 
             turn = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "user_text": user_text,
                 "assistant_text": answer_text,
-                "response_source": "gemini",
+                "response_source": response_source,
+                "voice_source": voice_source,
                 "input_audio_path": f"voice_input/{input_file}",
                 "output_audio_path": f"tts_output/{output_file}",
             }
+            if voice_faq_id and voice_faq_id > 0:
+                turn["voice_faq_id"] = voice_faq_id
+            if voice_match_score is not None:
+                turn["voice_match_score"] = voice_match_score
+
             history.append(turn)
     except KeyboardInterrupt:
         print("\nStopping assistant loop.")
@@ -210,7 +256,7 @@ def main() -> None:
             history=history,
             started_at=started_at,
         )
-        print(f"Conversation saved to: {_display_path(conversation_json_file)}")
+        print(f"Conversation saved to: {display_path(conversation_json_file)}")
 
 
 if __name__ == "__main__":
