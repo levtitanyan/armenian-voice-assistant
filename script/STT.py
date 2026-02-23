@@ -25,15 +25,15 @@ except ImportError:  # pragma: no cover - supports direct script execution
 
 VOICE_INPUT_DIR = PROJECT_ROOT / "data" / "conversations" / "voice_input"
 SAMPLE_RATE = 16000
-MIN_ARMENIAN_RATIO = 0.45
+MIN_ARMENIAN_RATIO = 0.6
 MIN_ARMENIAN_LETTERS = 2
 CHUNK_MS = 100
 SPEECH_RMS_THRESHOLD = 0.015
-END_SILENCE_SECONDS = 1.0
+END_SILENCE_SECONDS = 0.4
 PRE_SPEECH_SECONDS = 0.4
 MAX_RECORD_SECONDS = 30.0
 DEFAULT_STT_PROVIDER = "gemini"
-GEMINI_STT_MODEL = "gemini-2.5-flash"
+GEMINI_STT_MODEL = "gemini-2.5-flash-lite"
 ELEVENLABS_STT_MODEL = "scribe_v2"
 SttProvider = Literal["gemini", "elevenlabs"]
 

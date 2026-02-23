@@ -1,5 +1,6 @@
 """Main voice assistant loop: STT -> Gemini FAQ match -> fallback generation -> TTS."""
 
+# Run python script/main_runner.py --stt-provider gemini
 from __future__ import annotations
 
 import argparse

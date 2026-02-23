@@ -18,8 +18,8 @@ FAQ_JSON_PATH = PROJECT_ROOT / "data" / "faq.json"
 VOICE_ANSWERS_DIR = PROJECT_ROOT / "data" / "voice-answers"
 VOICE_ANSWERS_INDEX = "index.json"
 FAQ_MATCH_CONFIDENCE_THRESHOLD = 0.72
-FAQ_MATCH_MODEL = "gemini-2.5-flash"
-ANSWER_MODEL = "gemini-2.5-flash"
+FAQ_MATCH_MODEL = "gemini-2.5-flash-lite"
+ANSWER_MODEL = "gemini-2.5-flash-lite"
 
 
 def _get_gemini_client() -> genai.Client:
