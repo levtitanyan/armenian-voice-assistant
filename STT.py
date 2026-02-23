@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 import numpy as np
@@ -20,19 +21,68 @@ def _get_elevenlabs_client() -> ElevenLabs:
     return ElevenLabs(api_key=api_key)
 
 
-def record_voice_to_wav(output_path: Path, sample_rate: int = SAMPLE_RATE) -> Path:
+def _rms(signal: np.ndarray) -> float:
+    if signal.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(signal))))
+
+
+def record_voice_to_wav(
+    output_path: Path,
+    sample_rate: int = SAMPLE_RATE,
+    chunk_duration: float = 0.1,
+    speech_threshold: float = 0.015,
+    start_timeout_s: float = 10.0,
+    silence_duration_s: float = 1.0,
+    max_duration_s: float = 20.0,
+) -> Path:
     VOICE_INPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    chunk_size = int(sample_rate * chunk_duration)
+    start_time = time.monotonic()
+    speaking_started = False
+    silence_elapsed = 0.0
+    speech_elapsed = 0.0
     frames: list[np.ndarray] = []
 
-    def callback(indata, frames_count, time_info, status) -> None:  # type: ignore[no-untyped-def]
-        if status:
-            print(status)
-        frames.append(indata.copy())
+    print("Listening... start speaking.")
+    with sd.InputStream(samplerate=sample_rate, channels=1, dtype="float32") as stream:
+        while True:
+            chunk, overflowed = stream.read(chunk_size)
+            if overflowed:
+                print("Warning: audio buffer overflow detected.")
 
-    print("Recording... press Enter to stop.")
-    with sd.InputStream(samplerate=sample_rate, channels=1, dtype="float32", callback=callback):
-        input()
+            energy = _rms(chunk)
+            is_speech = energy >= speech_threshold
+
+            if not speaking_started:
+                if is_speech:
+                    speaking_started = True
+                    frames.append(chunk.copy())
+                    speech_elapsed = chunk_duration
+                    silence_elapsed = 0.0
+                    print("Speech detected. Recording...")
+                    continue
+
+                if time.monotonic() - start_time >= start_timeout_s:
+                    raise RuntimeError(
+                        "No speech detected before timeout. Please try again and speak clearly."
+                    )
+                continue
+
+            frames.append(chunk.copy())
+            speech_elapsed += chunk_duration
+
+            if is_speech:
+                silence_elapsed = 0.0
+            else:
+                silence_elapsed += chunk_duration
+
+            if silence_elapsed >= silence_duration_s:
+                break
+            if speech_elapsed >= max_duration_s:
+                print("Reached max recording duration for one turn.")
+                break
 
     if not frames:
         raise RuntimeError("No audio captured from microphone.")

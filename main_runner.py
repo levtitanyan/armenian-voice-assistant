@@ -135,8 +135,9 @@ def main() -> None:
 
     print(f"Loaded knowledge JSON: {knowledge_path}")
     print(f"Session conversation file: {CONVERSATION_FILE}")
-    print("Loop started.")
-    print("Speak, then press Enter to end each recording.")
+    print("Conversation loop started.")
+    print("Speak to start each turn. Stop speaking to end the turn automatically.")
+    print("Press Ctrl+C to stop.")
 
     current_index = _next_numeric_index()
     try:
@@ -146,7 +147,11 @@ def main() -> None:
             current_index += 1
 
             recorded_path = VOICE_INPUT_DIR / input_file
-            record_voice_to_wav(recorded_path)
+            try:
+                record_voice_to_wav(recorded_path)
+            except RuntimeError as exc:
+                print(f"Recording skipped: {exc}")
+                continue
 
             user_text = transcribe_armenian(recorded_path)
             if not user_text:
@@ -185,13 +190,8 @@ def main() -> None:
                 assistant_text=answer_text,
             )
             print(f"Conversation appended to: {CONVERSATION_FILE}")
-
-            stop_input = input(
-                "Press Enter to stop. Type anything and press Enter to continue: "
-            ).strip()
-            if stop_input == "":
-                print("Stopping assistant loop.")
-                break
+    except KeyboardInterrupt:
+        print("\nStopping assistant loop (Ctrl+C).")
     finally:
         if CONVERSATION_FILE.exists():
             CONVERSATION_FILE.unlink()
