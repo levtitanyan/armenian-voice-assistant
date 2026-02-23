@@ -38,9 +38,12 @@ brew install ffmpeg
 ```
 
 Loop behavior:
-1. Speak, then press `Enter` to finish the turn.
-2. Press `Esc` during recording to stop the session.
-3. Conversation artifacts are saved under `data/conversations/Conversation_###/`.
+1. The assistant listens automatically; when you start speaking, it records your turn.
+2. When you stop speaking, the turn ends automatically and the assistant replies with voice.
+3. After assistant playback ends, listening starts again for your next turn.
+4. Press `Esc` during listening/recording to stop the session.
+5. Optional: run with `--manual-recording` to use Enter/Esc turn control.
+6. Conversation artifacts are saved under `data/conversations/Conversation_###/`.
 
 ## FAQ JSON Format
 

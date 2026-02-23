@@ -36,6 +36,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_KNOWLEDGE_JSON,
         help=f"Path to knowledge JSON (default: {DEFAULT_KNOWLEDGE_JSON})",
     )
+    parser.add_argument(
+        "--manual-recording",
+        action="store_true",
+        help="Use Enter/Esc manual recording mode instead of automatic speech detection.",
+    )
     return parser.parse_args()
 
 
@@ -152,7 +157,11 @@ def main() -> None:
     print(f"Loaded knowledge JSON: {display_path(knowledge_path)}")
     print(f"Conversation folder: {display_path(conversation_dir)}")
     print("Loop started.")
-    print("Press Enter to finish a turn. Press Esc while recording to stop and save conversation.")
+    if args.manual_recording:
+        print("Manual mode: Press Enter to finish a turn. Press Esc while recording to stop.")
+    else:
+        print("Auto mode: start speaking to begin a turn. After assistant audio ends, listening resumes automatically.")
+        print("Press Esc while listening/recording to stop and save conversation.")
 
     current_index = 1
     try:
@@ -163,7 +172,11 @@ def main() -> None:
 
             recorded_path = voice_input_dir / input_file
             try:
-                record_voice_to_wav(output_path=recorded_path, show_saved_message=False)
+                record_voice_to_wav(
+                    output_path=recorded_path,
+                    show_saved_message=False,
+                    auto_vad=not args.manual_recording,
+                )
             except StopConversationRequested:
                 print("Stopping assistant loop.")
                 break
