@@ -2,7 +2,6 @@
 .env
 __pycache__/
 *.pyc
-io/
 .DS_Store
 mp3_learning_data/
 data

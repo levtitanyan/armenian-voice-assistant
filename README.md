@@ -1,19 +1,20 @@
-# Armenian Voice Assistant (STT -> Gemini -> TTS)
+# Armenian Voice Assistant (STT -> FAQ/Gemini -> TTS)
 
-This project:
-1. records Armenian speech from microphone,
-2. transcribes with ElevenLabs STT,
-3. answers with Gemini using a provided JSON knowledge file,
-4. speaks the answer with ElevenLabs TTS.
+Armenian HR assistant that:
+1. Records voice from microphone.
+2. Transcribes speech with ElevenLabs STT.
+3. Answers from `data/faq.json` first (similar question matching).
+4. Falls back to Gemini + `data/knowledge.json` context.
+5. Speaks answer with ElevenLabs TTS.
+6. Saves full session artifacts in `data/conversations/Conversation_###/`.
 
-The main entrypoint is `script/main_runner.py`.
+Main runner: `script/main_runner.py`
 
-## 1) Start From Zero -> End (Runbook)
+## Quick Start
 
-### Step 1: Setup environment
+### 1) Setup
 
 ```bash
-cd /Users/levon/Downloads/armenian-voice-assistant
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -26,153 +27,165 @@ ELEVENLABS_API_KEY=your_elevenlabs_key
 GEMINI_API_KEY=your_gemini_key
 ```
 
-Optional for local playback:
+Optional local playback (if `ffplay` is missing):
 
 ```bash
 brew install ffmpeg
 ```
 
-### Step 2: Download/import audio files
+### 2) Prepare call audio
 
-Put raw call audio files (`.m4a`, `.wav`, `.mp3`, `.ogg`, `.flac`, `.aac`, `.mp4`) under:
+Put raw call audio in:
 
 `data/call_records/`
 
-Example (if you use the existing archive):
+Supported formats: `.m4a`, `.wav`, `.mp3`, `.ogg`, `.flac`, `.aac`, `.mp4`
+
+If you have an archive:
 
 ```bash
 mkdir -p data/call_records
-# option A
 unrar x -o+ data/call_records.rar data/call_records/
-# option B
+# or
 unar -o data/call_records data/call_records.rar
 ```
 
-### Step 2.1: Download Excel file (`Հաճախակի տրվող հարցեր.xlsx`)
+### 3) Build transcripts + knowledge JSON
 
-Download the Excel file and place it in `data/`.
-
-Browser/manual:
-1. Download the `.xlsx` file from your source.
-2. Save it as `data/Հաճախակի տրվող հարցեր.xlsx`.
-
-CLI (if you have a direct download URL):
-
-```bash
-mkdir -p data
-curl -L "<DIRECT_XLSX_URL>" -o "data/Հաճախակի տրվող հարցեր.xlsx"
-```
-
-Verify:
-
-```bash
-ls -lh "data/Հաճախակի տրվող հարցեր.xlsx"
-```
-
-### Step 3: Build transcripts + knowledge JSON
-
-This step does all of this automatically:
-1. Reads audio from `data/call_records`.
-2. Reuses existing TXT in `data/transcripts` if matching transcript exists.
-3. Transcribes only missing ones and creates new TXT files.
+`script/build_dataset.py` does this:
+1. Reads files from `data/call_records/`.
+2. Reuses existing `.txt` transcripts from `data/transcripts/` when present.
+3. Transcribes only missing ones.
 4. Writes/updates `data/knowledge.json`.
 
-Run all remaining files:
+Run:
 
 ```bash
-python script/build_dataset.py
+.venv/bin/python script/build_dataset.py
 ```
 
-Chunk examples:
+Ranges:
 
 ```bash
-# first 10 files
-python script/build_dataset.py --start-index 0 --max-files 10
+# first 10
+.venv/bin/python script/build_dataset.py --start-index 0 --max-files 10
 
-# files 11 to 20
-python script/build_dataset.py --start-index 10 --max-files 10
+# 11 to 20
+.venv/bin/python script/build_dataset.py --start-index 10 --max-files 10
 
-# next 20 after first 35
-python script/build_dataset.py \
-  --start-index 35 \
-  --max-files 20
+# custom chunk
+.venv/bin/python script/build_dataset.py --start-index 35 --max-files 20
 ```
 
-### Step 4: Run assistant
+### 4) Run assistant
 
 ```bash
-source .venv/bin/activate
-python script/main_runner.py
+.venv/bin/python script/main_runner.py
 ```
 
 Loop behavior:
-1. It records microphone input.
-2. Press `Enter` to finish a turn.
-3. It transcribes + answers using knowledge JSON + current session history.
-4. It immediately starts listening again after each answer (no continue prompt).
-5. Press `Esc` during recording to stop the assistant loop.
-6. On exit it saves the whole session under `io/Conversation_###/` with:
-   - `voice_input/*.wav`
-   - `tts_output/*.mp3`
-   - `conversation.json`
+1. Speak, then press `Enter` to finish the turn.
+2. Assistant answers and starts listening again automatically.
+3. Press `Esc` during recording to stop.
+4. On stop, session is saved under `data/conversations/Conversation_###/`.
 
-## 2) Metadata For Staged Files (Important)
+## FAQ JSON (Q/A Source)
 
-These are the key files in the audio -> JSON staging pipeline.
+File: `data/faq.json`
 
-| Path | Role | Metadata / Format |
-|---|---|---|
-| `data/call_records/**/*` | Raw downloaded audio staging area | File metadata: filename, extension, size, modified time, full path |
-| `data/transcripts/*.txt` | Reused/generated transcript staging | One TXT transcript per call recording |
-| `data/knowledge.json` | Knowledge used by `script/main_runner.py` | JSON array rows: `item_id`, `source_type`, `source`, `text`, `meta.audio_path`, `meta.transcript_path` |
-| `io/Conversation_###/voice_input/*.wav` | Live user turns recorded by assistant | Per-turn WAV files (`0001.wav`, `0002.wav`, ...) |
-| `io/Conversation_###/tts_output/*.mp3` | Assistant spoken responses | Per-turn MP3 files (`0001.mp3`, `0002.mp3`, ...) |
-| `io/Conversation_###/conversation.json` | Full session artifact saved on exit | JSON object: `conversation_id`, `started_at`, `ended_at`, `knowledge_json`, `turn_count`, `turns[]` |
+Format:
 
-Quick check commands:
-
-```bash
-# count staged raw audio files
-find data/call_records -type f \( -iname '*.wav' -o -iname '*.m4a' -o -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.flac' -o -iname '*.aac' -o -iname '*.mp4' \) | wc -l
-
-# count transcript txt files
-find data/transcripts -type f -iname '*.txt' | wc -l
-
-# count knowledge items
-python - <<'PY'
-import json
-from pathlib import Path
-p = Path("data/knowledge.json")
-print(len(json.loads(p.read_text(encoding="utf-8"))) if p.exists() else 0)
-PY
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "questions": ["barev", "բարև", "բարև ձեզ"],
+      "answer": "..."
+    }
+  ]
+}
 ```
 
-Git staged file metadata (optional):
+Notes:
+- `id` is the stable answer number.
+- `questions` are variants that map to the same answer.
+- One `id` should map to one final answer text.
+
+## Generate Voice Files For FAQ Answers
+
+Script: `script/faq-to-voice.py`
+
+Generates one MP3 per FAQ answer id (for example `001_answer.mp3`, `002_answer.mp3`) and saves to `data/voice-answers/`.
 
 ```bash
-git diff --cached --name-status
-git diff --cached --numstat
+.venv/bin/python script/faq-to-voice.py
 ```
 
-## 3) Core Files
+Custom paths/options:
+
+```bash
+.venv/bin/python script/faq-to-voice.py \
+  --faq-json data/faq.json \
+  --output-dir data/voice-answers \
+  --overwrite
+```
+
+Also writes manifest file:
+
+`data/voice-answers/index.json`
+
+## Project Structure
 
 | Path | Purpose |
 |---|---|
-| `script/main_runner.py` | Main loop runner using knowledge JSON + current-session conversation awareness |
-| `script/build_dataset.py` | Reuse/create TXT transcripts and build `data/knowledge.json` |
-| `script/json_analysis.py` | Analyze `data/knowledge.json` and produce HR answer summary/playbook |
-| `script/STT.py` | Microphone recording and ElevenLabs speech-to-text |
-| `script/TTS.py` | ElevenLabs text-to-speech synthesis/playback |
-| `script/gemini.py` | Gemini API call wrapper and Armenian response policy |
-| `requirements.txt` | Python dependencies |
+| `script/main_runner.py` | Main voice loop (STT -> FAQ/Gemini -> TTS) |
+| `script/build_dataset.py` | Builds/updates transcripts and `data/knowledge.json` |
+| `script/faq-to-voice.py` | Generates per-FAQ-answer MP3 files from `data/faq.json` |
+| `script/json_analysis.py` | Summarizes `data/knowledge.json` |
+| `script/STT.py` | Recording + transcription |
+| `script/TTS.py` | Speech synthesis + playback + cache |
+| `script/gemini.py` | Gemini response wrapper |
+| `data/faq.json` | FAQ answers + question variants |
+| `data/knowledge.json` | HR knowledge dataset used as Gemini context |
+| `data/conversations/` | Saved session folders |
+| `data/voice-answers/` | Pre-generated FAQ answer voices |
 
-## 4) Keep Local (Do Not Push)
+## Conversation Artifacts
+
+Each run creates:
+
+`data/conversations/Conversation_###/`
+
+with:
+- `voice_input/0001.wav`, `0002.wav`, ...
+- `tts_output/0001.mp3`, `0002.mp3`, ...
+- `conversation.json` (full turn history)
+
+## Useful Checks
+
+```bash
+# raw audio count
+find data/call_records -type f \( -iname '*.wav' -o -iname '*.m4a' -o -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.flac' -o -iname '*.aac' -o -iname '*.mp4' \) | wc -l
+
+# transcript count
+find data/transcripts -type f -iname '*.txt' | wc -l
+
+# knowledge item count
+.venv/bin/python - <<'PY'
+import json
+from pathlib import Path
+p = Path('data/knowledge.json')
+print(len(json.loads(p.read_text(encoding='utf-8'))) if p.exists() else 0)
+PY
+```
+
+## Keep Local (Do Not Push)
 
 - `.env`
 - `.venv/`
 - `data/*.rar`
 - `data/*.xlsx`
-- `data/*.json`
-- `data/*.jsonl`
 - `data/call_records/`
-- `io/`
+- `data/conversations/`
+- `data/voice-answers/`

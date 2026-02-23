@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover - supports direct script execution
     from gemini import gemini_answer_armenian
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-IO_DIR = PROJECT_ROOT / "io"
+CONVERSATIONS_DIR = PROJECT_ROOT / "data" / "conversations"
 CONVERSATION_PREFIX = "Conversation_"
 KNOWLEDGE_JSON_FILE = "data/knowledge.json"
 
@@ -44,10 +44,10 @@ def _resolve_project_path(path_value: str) -> Path:
 
 
 def _next_conversation_directory() -> Path:
-    IO_DIR.mkdir(parents=True, exist_ok=True)
+    CONVERSATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     max_index = 0
-    for path in IO_DIR.iterdir():
+    for path in CONVERSATIONS_DIR.iterdir():
         if not path.is_dir():
             continue
         if not path.name.startswith(CONVERSATION_PREFIX):
@@ -56,7 +56,7 @@ def _next_conversation_directory() -> Path:
         if suffix.isdigit():
             max_index = max(max_index, int(suffix))
 
-    return IO_DIR / f"{CONVERSATION_PREFIX}{max_index + 1:03d}"
+    return CONVERSATIONS_DIR / f"{CONVERSATION_PREFIX}{max_index + 1:03d}"
 
 
 def _load_knowledge_context(knowledge_path: Path) -> str:
@@ -191,15 +191,15 @@ def main() -> None:
                 show_saved_message=False,
             )
 
-            history.append(
-                {
-                    "timestamp": datetime.now().isoformat(timespec="seconds"),
-                    "user_text": user_text,
-                    "assistant_text": answer_text,
-                    "input_audio_path": f"voice_input/{input_file}",
-                    "output_audio_path": f"tts_output/{output_file}",
-                }
-            )
+            turn = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "user_text": user_text,
+                "assistant_text": answer_text,
+                "response_source": "gemini",
+                "input_audio_path": f"voice_input/{input_file}",
+                "output_audio_path": f"tts_output/{output_file}",
+            }
+            history.append(turn)
     except KeyboardInterrupt:
         print("\nStopping assistant loop.")
     finally:

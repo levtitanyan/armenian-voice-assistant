@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-VOICE_INPUT_DIR = PROJECT_ROOT / "io" / "voice_input"
+VOICE_INPUT_DIR = PROJECT_ROOT / "data" / "conversations" / "voice_input"
 SAMPLE_RATE = 16000
 
 
