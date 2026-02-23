@@ -34,18 +34,18 @@ brew install ffmpeg
 
 ### Step 2: Download/import audio files
 
-Put raw call audio files (`.m4a`, `.wav`, `.mp3`, `.ogg`, `.flac`, `.aac`) under:
+Put raw call audio files (`.m4a`, `.wav`, `.mp3`, `.ogg`, `.flac`, `.aac`, `.mp4`) under:
 
-`data/call_recordings/`
+`data/call_records/`
 
 Example (if you use the existing archive):
 
 ```bash
-mkdir -p data/call_recordings
+mkdir -p data/call_records
 # option A
-unrar x -o+ data/call_records.rar data/call_recordings/
+unrar x -o+ data/call_records.rar data/call_records/
 # option B
-unar -o data/call_recordings data/call_records.rar
+unar -o data/call_records data/call_records.rar
 ```
 
 ### Step 2.1: Download Excel file (`Հաճախակի տրվող հարցեր.xlsx`)
@@ -69,84 +69,36 @@ Verify:
 ls -lh "data/Հաճախակի տրվող հարցեր.xlsx"
 ```
 
-### Step 3: Build transcript dataset from audio
+### Step 3: Build transcripts + knowledge JSON
 
-Generate or append transcripts:
+This step does all of this automatically:
+1. Reads audio from `data/call_records`.
+2. Reuses existing TXT in `data/transcripts` if matching transcript exists.
+3. Transcribes only missing ones and creates new TXT files.
+4. Writes/updates `data/knowledge.json`.
+
+Run all remaining files:
 
 ```bash
-python script/build_dataset.py \
-  --audio-dir data/call_recordings \
-  --dataset-out data/sas_dataset.jsonl \
-  --skip-existing
+python script/build_dataset.py
 ```
 
-Process a specific chunk (example: next 20 after first 35):
+Chunk examples:
 
 ```bash
+# first 10 files
+python script/build_dataset.py --start-index 0 --max-files 10
+
+# files 11 to 20
+python script/build_dataset.py --start-index 10 --max-files 10
+
+# next 20 after first 35
 python script/build_dataset.py \
-  --audio-dir data/call_recordings \
-  --dataset-out data/sas_dataset.jsonl \
   --start-index 35 \
   --max-files 20
 ```
 
-### Step 4: Convert/apply dataset into `data/sas_knowledge.json`
-
-Run this once after new audio transcriptions are added:
-
-```bash
-python - <<'PY'
-import json
-from pathlib import Path
-
-dataset = Path("data/sas_dataset.jsonl")
-knowledge = Path("data/sas_knowledge.json")
-
-items = json.loads(knowledge.read_text(encoding="utf-8")) if knowledge.exists() else []
-if not isinstance(items, list):
-    raise SystemExit("data/sas_knowledge.json must be a JSON array")
-
-existing_paths = set()
-for it in items:
-    if isinstance(it, dict):
-        meta = it.get("meta", {})
-        if isinstance(meta, dict) and isinstance(meta.get("path"), str):
-            existing_paths.add(str(Path(meta["path"]).resolve()))
-
-next_id = 1
-for it in items:
-    iid = str(it.get("item_id", "")) if isinstance(it, dict) else ""
-    if iid.startswith("audio-"):
-        try:
-            next_id = max(next_id, int(iid.split("-")[1]) + 1)
-        except Exception:
-            pass
-
-added = 0
-for line in dataset.read_text(encoding="utf-8").splitlines():
-    if not line.strip():
-        continue
-    row = json.loads(line)
-    audio_path = str(Path(row["audio_path"]).resolve())
-    if audio_path in existing_paths:
-        continue
-    items.append({
-        "item_id": f"audio-{next_id:05d}",
-        "source_type": "call_recording_transcript",
-        "source": Path(audio_path).name,
-        "text": row.get("transcript", ""),
-        "meta": {"path": audio_path},
-    })
-    next_id += 1
-    added += 1
-    existing_paths.add(audio_path)
-
-knowledge.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
-print(f"Added {added} items to {knowledge}")
-PY
-```
-
-### Step 5: Run assistant
+### Step 4: Run assistant
 
 ```bash
 source .venv/bin/activate
@@ -170,9 +122,9 @@ These are the key files in the audio -> JSON staging pipeline.
 
 | Path | Role | Metadata / Format |
 |---|---|---|
-| `data/call_recordings/**/*` | Raw downloaded audio staging area | File metadata: filename, extension, size, modified time, full path |
-| `data/sas_dataset.jsonl` | Transcription staging output from `script/build_dataset.py` | JSONL rows: `id`, `audio_path`, `transcript` |
-| `data/sas_knowledge.json` | Knowledge used by `script/main_runner.py` | JSON array rows: `item_id`, `source_type`, `source`, `text`, `meta.path` |
+| `data/call_records/**/*` | Raw downloaded audio staging area | File metadata: filename, extension, size, modified time, full path |
+| `data/transcripts/*.txt` | Reused/generated transcript staging | One TXT transcript per call recording |
+| `data/knowledge.json` | Knowledge used by `script/main_runner.py` | JSON array rows: `item_id`, `source_type`, `source`, `text`, `meta.audio_path`, `meta.transcript_path` |
 | `io/Conversation_###/voice_input/*.wav` | Live user turns recorded by assistant | Per-turn WAV files (`0001.wav`, `0002.wav`, ...) |
 | `io/Conversation_###/tts_output/*.mp3` | Assistant spoken responses | Per-turn MP3 files (`0001.mp3`, `0002.mp3`, ...) |
 | `io/Conversation_###/conversation.json` | Full session artifact saved on exit | JSON object: `conversation_id`, `started_at`, `ended_at`, `knowledge_json`, `turn_count`, `turns[]` |
@@ -181,16 +133,16 @@ Quick check commands:
 
 ```bash
 # count staged raw audio files
-find data/call_recordings -type f \( -iname '*.wav' -o -iname '*.m4a' -o -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.flac' -o -iname '*.aac' \) | wc -l
+find data/call_records -type f \( -iname '*.wav' -o -iname '*.m4a' -o -iname '*.mp3' -o -iname '*.ogg' -o -iname '*.flac' -o -iname '*.aac' -o -iname '*.mp4' \) | wc -l
 
-# count transcript rows
-wc -l data/sas_dataset.jsonl
+# count transcript txt files
+find data/transcripts -type f -iname '*.txt' | wc -l
 
 # count knowledge items
 python - <<'PY'
 import json
 from pathlib import Path
-p = Path("data/sas_knowledge.json")
+p = Path("data/knowledge.json")
 print(len(json.loads(p.read_text(encoding="utf-8"))) if p.exists() else 0)
 PY
 ```
@@ -207,7 +159,7 @@ git diff --cached --numstat
 | Path | Purpose |
 |---|---|
 | `script/main_runner.py` | Main loop runner using knowledge JSON + current-session conversation awareness |
-| `script/build_dataset.py` | Batch-transcribe raw audio into JSONL dataset |
+| `script/build_dataset.py` | Reuse/create TXT transcripts and build `data/knowledge.json` |
 | `script/STT.py` | Microphone recording and ElevenLabs speech-to-text |
 | `script/TTS.py` | ElevenLabs text-to-speech synthesis/playback |
 | `script/gemini.py` | Gemini API call wrapper and Armenian response policy |
@@ -221,5 +173,5 @@ git diff --cached --numstat
 - `data/*.xlsx`
 - `data/*.json`
 - `data/*.jsonl`
-- `data/call_recordings/`
+- `data/call_records/`
 - `io/`
