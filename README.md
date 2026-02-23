@@ -6,7 +6,7 @@ This project:
 3. answers with Gemini using a provided JSON knowledge file,
 4. speaks the answer with ElevenLabs TTS.
 
-The main entrypoint is `main_runner.py`.
+The main entrypoint is `script/main_runner.py`.
 
 ## 1) Start From Zero -> End (Runbook)
 
@@ -74,7 +74,7 @@ ls -lh "data/Հաճախակի տրվող հարցեր.xlsx"
 Generate or append transcripts:
 
 ```bash
-python build_dataset.py \
+python script/build_dataset.py \
   --audio-dir data/call_recordings \
   --dataset-out data/sas_dataset.jsonl \
   --skip-existing
@@ -83,7 +83,7 @@ python build_dataset.py \
 Process a specific chunk (example: next 20 after first 35):
 
 ```bash
-python build_dataset.py \
+python script/build_dataset.py \
   --audio-dir data/call_recordings \
   --dataset-out data/sas_dataset.jsonl \
   --start-index 35 \
@@ -146,22 +146,23 @@ print(f"Added {added} items to {knowledge}")
 PY
 ```
 
-### Step 5: Run assistant with a given JSON
+### Step 5: Run assistant
 
 ```bash
 source .venv/bin/activate
-python main_runner.py data/sas_knowledge.json
+python script/main_runner.py
 ```
 
 Loop behavior:
 1. It records microphone input.
-2. Press `Enter` to stop recording each turn.
+2. Press `Enter` to finish a turn.
 3. It transcribes + answers using knowledge JSON + current session history.
-4. It speaks and saves reply audio.
-5. At prompt:
-   - press `Enter` to stop the assistant loop,
-   - or type anything and press `Enter` to continue next turn.
-6. On exit it deletes `data/current_session_conversation.jsonl` automatically.
+4. It immediately starts listening again after each answer (no continue prompt).
+5. Press `Esc` during recording to stop the assistant loop.
+6. On exit it saves the whole session under `io/Conversation_###/` with:
+   - `voice_input/*.wav`
+   - `tts_output/*.mp3`
+   - `conversation.json`
 
 ## 2) Metadata For Staged Files (Important)
 
@@ -170,11 +171,11 @@ These are the key files in the audio -> JSON staging pipeline.
 | Path | Role | Metadata / Format |
 |---|---|---|
 | `data/call_recordings/**/*` | Raw downloaded audio staging area | File metadata: filename, extension, size, modified time, full path |
-| `data/sas_dataset.jsonl` | Transcription staging output from `build_dataset.py` | JSONL rows: `id`, `audio_path`, `transcript` |
-| `data/sas_knowledge.json` | Knowledge used by `main_runner.py` | JSON array rows: `item_id`, `source_type`, `source`, `text`, `meta.path` |
-| `voice_input/*.wav` | Live user turns recorded by assistant | Per-turn WAV files (`0001.wav`, `0002.wav`, ...) |
-| `tts_output/*.mp3` | Assistant spoken responses | Per-turn MP3 files (`0001.mp3`, `0002.mp3`, ...) |
-| `data/current_session_conversation.jsonl` | Temporary current session context | JSONL rows: `timestamp`, `knowledge_json`, `input_audio_path`, `output_audio_path`, `user_text`, `assistant_text`; deleted on exit |
+| `data/sas_dataset.jsonl` | Transcription staging output from `script/build_dataset.py` | JSONL rows: `id`, `audio_path`, `transcript` |
+| `data/sas_knowledge.json` | Knowledge used by `script/main_runner.py` | JSON array rows: `item_id`, `source_type`, `source`, `text`, `meta.path` |
+| `io/Conversation_###/voice_input/*.wav` | Live user turns recorded by assistant | Per-turn WAV files (`0001.wav`, `0002.wav`, ...) |
+| `io/Conversation_###/tts_output/*.mp3` | Assistant spoken responses | Per-turn MP3 files (`0001.mp3`, `0002.mp3`, ...) |
+| `io/Conversation_###/conversation.json` | Full session artifact saved on exit | JSON object: `conversation_id`, `started_at`, `ended_at`, `knowledge_json`, `turn_count`, `turns[]` |
 
 Quick check commands:
 
@@ -205,11 +206,11 @@ git diff --cached --numstat
 
 | Path | Purpose |
 |---|---|
-| `main_runner.py` | Main loop runner using knowledge JSON + current-session conversation awareness |
-| `build_dataset.py` | Batch-transcribe raw audio into JSONL dataset |
-| `STT.py` | Microphone recording and ElevenLabs speech-to-text |
-| `TTS.py` | ElevenLabs text-to-speech synthesis/playback |
-| `gemini.py` | Gemini API call wrapper and Armenian response policy |
+| `script/main_runner.py` | Main loop runner using knowledge JSON + current-session conversation awareness |
+| `script/build_dataset.py` | Batch-transcribe raw audio into JSONL dataset |
+| `script/STT.py` | Microphone recording and ElevenLabs speech-to-text |
+| `script/TTS.py` | ElevenLabs text-to-speech synthesis/playback |
+| `script/gemini.py` | Gemini API call wrapper and Armenian response policy |
 | `requirements.txt` | Python dependencies |
 
 ## 4) Keep Local (Do Not Push)
@@ -221,5 +222,4 @@ git diff --cached --numstat
 - `data/*.json`
 - `data/*.jsonl`
 - `data/call_recordings/`
-- `voice_input/`
-- `tts_output/`
+- `io/`

@@ -1,5 +1,7 @@
 import os
 import time
+import select
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -8,13 +10,55 @@ import soundfile as sf
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 
-BASE_DIR = Path(__file__).resolve().parent
-VOICE_INPUT_DIR = BASE_DIR / "voice_input"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+VOICE_INPUT_DIR = PROJECT_ROOT / "io" / "voice_input"
 SAMPLE_RATE = 16000
 
 
+class StopConversationRequested(Exception):
+    """Raised when the user presses Esc during recording."""
+
+
+def _display_path(path: Path) -> str:
+    try:
+        relative = path.resolve().relative_to(PROJECT_ROOT)
+        return f"{PROJECT_ROOT.name}/{relative.as_posix()}"
+    except ValueError:
+        return str(path)
+
+
+def _wait_for_recording_key() -> str:
+    if not sys.stdin.isatty():
+        input()
+        return "enter"
+
+    try:
+        import termios
+        import tty
+    except ImportError:
+        input()
+        return "enter"
+
+    fd = sys.stdin.fileno()
+    original_attrs = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        while True:
+            ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+            if not ready:
+                continue
+
+            char = sys.stdin.read(1)
+            if char in ("\n", "\r"):
+                return "enter"
+            if char == "\x1b":
+                return "esc"
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
+
+
 def _get_elevenlabs_client() -> ElevenLabs:
-    load_dotenv()
+    load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
     api_key = os.getenv("ELEVENLABS_API_KEY") or os.getenv("XI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing ELEVENLABS_API_KEY (or XI_API_KEY) in environment or .env file.")
@@ -35,6 +79,7 @@ def record_voice_to_wav(
     start_timeout_s: float = 10.0,
     silence_duration_s: float = 1.0,
     max_duration_s: float = 20.0,
+    show_saved_message: bool = True,
 ) -> Path:
     VOICE_INPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,7 +134,8 @@ def record_voice_to_wav(
 
     audio_np = np.concatenate(frames, axis=0)
     sf.write(output_path.as_posix(), audio_np, sample_rate, subtype="PCM_16")
-    print(f"Saved voice recording: {output_path}")
+    if show_saved_message:
+        print(f"Saved voice recording: {_display_path(output_path)}")
     return output_path
 
 
@@ -117,7 +163,7 @@ def record_and_transcribe_armenian(filename: str = "mic.wav") -> tuple[Path, str
 
 def main() -> None:
     wav_path, transcript = record_and_transcribe_armenian()
-    print(f"Transcription from {wav_path}:")
+    print(f"Transcription from {_display_path(wav_path)}:")
     print(transcript)
 
 

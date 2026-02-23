@@ -2,10 +2,13 @@ import argparse
 import json
 from pathlib import Path
 
-from STT import transcribe_armenian
+try:
+    from .STT import transcribe_armenian
+except ImportError:  # pragma: no cover - supports direct script execution
+    from STT import transcribe_armenian
 
 AUDIO_EXTENSIONS = {".wav", ".m4a", ".mp3", ".ogg", ".flac", ".aac"}
-BASE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,7 +55,7 @@ def parse_args() -> argparse.Namespace:
 def resolve_path(path_value: str) -> Path:
     path = Path(path_value)
     if not path.is_absolute():
-        path = BASE_DIR / path
+        path = PROJECT_ROOT / path
     return path.resolve()
 
 

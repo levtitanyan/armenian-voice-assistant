@@ -2,8 +2,7 @@
 .env
 __pycache__/
 *.pyc
-voice_input/
-tts_output/
+io/
 .DS_Store
 mp3_learning_data/
 data

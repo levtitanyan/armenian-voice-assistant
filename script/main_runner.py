@@ -3,25 +3,35 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from STT import VOICE_INPUT_DIR, record_voice_to_wav, transcribe_armenian
-from TTS import TTS_OUTPUT_DIR, speak_armenian
-from gemini import gemini_answer_armenian
+try:
+    from .STT import StopConversationRequested, record_voice_to_wav, transcribe_armenian
+    from .TTS import speak_armenian
+    from .gemini import gemini_answer_armenian
+except ImportError:  # pragma: no cover - supports direct script execution
+    from STT import StopConversationRequested, record_voice_to_wav, transcribe_armenian
+    from TTS import speak_armenian
+    from gemini import gemini_answer_armenian
 
-BASE_DIR = Path(__file__).resolve().parent
-CONVERSATION_FILE = BASE_DIR / "data" / "current_session_conversation.jsonl"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+IO_DIR = PROJECT_ROOT / "io"
+CONVERSATION_PREFIX = "Conversation_"
+KNOWLEDGE_JSON_FILE = "data/knowledge.json"
+
+
+def _display_path(path: Path) -> str:
+    try:
+        relative = path.resolve().relative_to(PROJECT_ROOT)
+        return f"{PROJECT_ROOT.name}/{relative.as_posix()}"
+    except ValueError:
+        return str(path)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Looping Armenian voice assistant. "
-            "Loads one JSON file as knowledge context and keeps listening until you stop."
+            "Loads data/knowledge.json as knowledge context and keeps listening until you stop."
         )
-    )
-    parser.add_argument(
-        "knowledge_json",
-        type=str,
-        help="Path to JSON knowledge file (example: data/sas_knowledge.json).",
     )
     return parser.parse_args()
 
@@ -29,23 +39,24 @@ def parse_args() -> argparse.Namespace:
 def _resolve_project_path(path_value: str) -> Path:
     path = Path(path_value)
     if not path.is_absolute():
-        path = BASE_DIR / path
+        path = PROJECT_ROOT / path
     return path.resolve()
 
 
-def _next_numeric_index() -> int:
-    VOICE_INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    TTS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def _next_conversation_directory() -> Path:
+    IO_DIR.mkdir(parents=True, exist_ok=True)
 
     max_index = 0
-    for directory in (VOICE_INPUT_DIR, TTS_OUTPUT_DIR):
-        for path in directory.iterdir():
-            if not path.is_file():
-                continue
-            stem = path.stem
-            if stem.isdigit():
-                max_index = max(max_index, int(stem))
-    return max_index + 1
+    for path in IO_DIR.iterdir():
+        if not path.is_dir():
+            continue
+        if not path.name.startswith(CONVERSATION_PREFIX):
+            continue
+        suffix = path.name[len(CONVERSATION_PREFIX) :]
+        if suffix.isdigit():
+            max_index = max(max_index, int(suffix))
+
+    return IO_DIR / f"{CONVERSATION_PREFIX}{max_index + 1:03d}"
 
 
 def _load_knowledge_context(knowledge_path: Path) -> str:
@@ -104,60 +115,66 @@ def _build_prompt(
     )
 
 
-def _append_conversation_row(
+def _save_conversation_json(
     conversation_file: Path,
+    conversation_dir: Path,
     knowledge_json: Path,
-    recorded_path: Path,
-    reply_path: Path,
-    user_text: str,
-    assistant_text: str,
+    history: list[dict],
+    started_at: datetime,
 ) -> None:
     conversation_file.parent.mkdir(parents=True, exist_ok=True)
-    row = {
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
+    payload = {
+        "conversation_id": conversation_dir.name,
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "ended_at": datetime.now().isoformat(timespec="seconds"),
         "knowledge_json": str(knowledge_json),
-        "input_audio_path": str(recorded_path),
-        "output_audio_path": str(reply_path),
-        "user_text": user_text,
-        "assistant_text": assistant_text,
+        "turn_count": len(history),
+        "turns": history,
     }
-    with conversation_file.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(row, ensure_ascii=False) + "\n")
+    conversation_file.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def main() -> None:
-    args = parse_args()
-    knowledge_path = _resolve_project_path(args.knowledge_json)
+    parse_args()
+    knowledge_path = _resolve_project_path(KNOWLEDGE_JSON_FILE)
     knowledge_context = _load_knowledge_context(knowledge_path)
     history: list[dict] = []
-    if CONVERSATION_FILE.exists():
-        CONVERSATION_FILE.unlink()
+    started_at = datetime.now()
 
-    print(f"Loaded knowledge JSON: {knowledge_path}")
-    print(f"Session conversation file: {CONVERSATION_FILE}")
-    print("Conversation loop started.")
-    print("Speak to start each turn. Stop speaking to end the turn automatically.")
-    print("Press Ctrl+C to stop.")
+    conversation_dir = _next_conversation_directory()
+    voice_input_dir = conversation_dir / "voice_input"
+    tts_output_dir = conversation_dir / "tts_output"
+    conversation_json_file = conversation_dir / "conversation.json"
+    voice_input_dir.mkdir(parents=True, exist_ok=True)
+    tts_output_dir.mkdir(parents=True, exist_ok=True)
 
-    current_index = _next_numeric_index()
+    print(f"Loaded knowledge JSON: {_display_path(knowledge_path)}")
+    print(f"Conversation folder: {_display_path(conversation_dir)}")
+    print("Loop started.")
+    print("Press Enter to finish a turn. Press Esc while recording to stop and save conversation.")
+
+    current_index = 1
     try:
         while True:
             input_file = f"{current_index:04d}.wav"
             output_file = f"{current_index:04d}.mp3"
             current_index += 1
 
-            recorded_path = VOICE_INPUT_DIR / input_file
+            recorded_path = voice_input_dir / input_file
             try:
-                record_voice_to_wav(recorded_path)
-            except RuntimeError as exc:
-                print(f"Recording skipped: {exc}")
-                continue
+                record_voice_to_wav(output_path=recorded_path, show_saved_message=False)
+            except StopConversationRequested:
+                print("Stopping assistant loop.")
+                break
 
             user_text = transcribe_armenian(recorded_path)
             if not user_text:
                 print("Empty transcription. Try again.")
                 continue
-            print(f"You said (Armenian): {user_text}")
+            print(f"Դուք: {user_text}")
 
             prompt_with_context = _build_prompt(
                 user_text=user_text,
@@ -165,37 +182,35 @@ def main() -> None:
                 history=history,
             )
             answer_text = gemini_answer_armenian(prompt_with_context)
-            print(f"Gemini answer (Armenian): {answer_text}")
+            print(f"SAS HR: {answer_text}")
 
-            reply_path = speak_armenian(
+            speak_armenian(
                 text=answer_text,
                 output_filename=output_file,
+                output_path=tts_output_dir / output_file,
+                show_saved_message=False,
             )
-            print(f"Reply saved to: {reply_path}")
 
             history.append(
                 {
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
                     "user_text": user_text,
                     "assistant_text": answer_text,
-                    "input_audio_path": str(recorded_path),
-                    "output_audio_path": str(reply_path),
+                    "input_audio_path": f"voice_input/{input_file}",
+                    "output_audio_path": f"tts_output/{output_file}",
                 }
             )
-            _append_conversation_row(
-                conversation_file=CONVERSATION_FILE,
-                knowledge_json=knowledge_path,
-                recorded_path=recorded_path,
-                reply_path=reply_path,
-                user_text=user_text,
-                assistant_text=answer_text,
-            )
-            print(f"Conversation appended to: {CONVERSATION_FILE}")
     except KeyboardInterrupt:
         print("\nStopping assistant loop (Ctrl+C).")
     finally:
-        if CONVERSATION_FILE.exists():
-            CONVERSATION_FILE.unlink()
-            print(f"Deleted session conversation file: {CONVERSATION_FILE}")
+        _save_conversation_json(
+            conversation_file=conversation_json_file,
+            conversation_dir=conversation_dir,
+            knowledge_json=knowledge_path,
+            history=history,
+            started_at=started_at,
+        )
+        print(f"Conversation saved to: {_display_path(conversation_json_file)}")
 
 
 if __name__ == "__main__":

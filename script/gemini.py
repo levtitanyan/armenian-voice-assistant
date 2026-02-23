@@ -1,11 +1,14 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from google import genai
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 def _get_gemini_client() -> genai.Client:
-    load_dotenv()
+    load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing GEMINI_API_KEY in environment or .env file.")
@@ -22,9 +25,12 @@ def gemini_answer_armenian(user_text: str, model: str = "gemini-2.5-flash") -> s
                 "parts": [
                     {
                         "text": (
-                            "Դու օգտակար օգնական ես։ "
+                            "Դու Սասի HR AI Agent ես։ "
                             "Միշտ պատասխանիր հայերենով։ "
-                            "Պատասխանը պահիր հստակ և կոնկրետ։\n\n"
+                            "Պատասխանը պահիր շատ կարճ՝ 1-2 կարճ նախադասություն։ "
+                            "Պատասխաններում խուսափիր երկար բացատրություններից։ "
+                            "Եթե հարցնեն՝ ով ես, հստակ ասա, որ Սասի HR AI Agent ես։ "
+                            "Եթե տվյալը վստահ չգիտես, ասա կարճ, որ տվյալը չունես։\n\n"
                             f"Հարց/մուտք՝ {user_text}"
                         )
                     }
