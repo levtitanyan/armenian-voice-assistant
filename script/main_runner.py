@@ -22,7 +22,6 @@ CONVERSATIONS_DIR = PROJECT_ROOT / "data" / "conversations"
 CONVERSATION_PREFIX = "Conversation_"
 DEFAULT_KNOWLEDGE_JSON = "data/knowledge.json"
 
-
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments for assistant runtime configuration."""
     parser = argparse.ArgumentParser(
