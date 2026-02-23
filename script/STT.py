@@ -8,12 +8,15 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
+from google import genai
+from google.genai import types
 
 try:
     from .common import PROJECT_ROOT, display_path, is_mostly_armenian
@@ -29,6 +32,10 @@ SPEECH_RMS_THRESHOLD = 0.015
 END_SILENCE_SECONDS = 1.0
 PRE_SPEECH_SECONDS = 0.4
 MAX_RECORD_SECONDS = 30.0
+DEFAULT_STT_PROVIDER = "gemini"
+GEMINI_STT_MODEL = "gemini-2.5-flash"
+ELEVENLABS_STT_MODEL = "scribe_v2"
+SttProvider = Literal["gemini", "elevenlabs"]
 
 
 class StopConversationRequested(Exception):
@@ -102,6 +109,15 @@ def _read_stop_key_nonblocking() -> str | None:
     if char in ("\n", "\r"):
         return "enter"
     return None
+
+
+def _get_gemini_client() -> genai.Client:
+    """Create a Gemini client from `.env`/environment variables."""
+    load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing GEMINI_API_KEY in environment or .env file.")
+    return genai.Client(api_key=api_key)
 
 
 def _get_elevenlabs_client() -> ElevenLabs:
@@ -231,8 +247,33 @@ def _record_voice_to_wav_manual(
     return output_path
 
 
-def transcribe_armenian(audio_path: Path, model_id: str = "scribe_v2") -> str:
-    """Transcribe an audio file and return Armenian text only."""
+def _transcribe_with_gemini(audio_path: Path, model_id: str) -> str:
+    """Transcribe Armenian audio with Gemini."""
+    client = _get_gemini_client()
+    audio_bytes = audio_path.read_bytes()
+    response = client.models.generate_content(
+        model=model_id,
+        contents=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(
+                        text=(
+                            "Transcribe this audio into Armenian text only. "
+                            "Return plain text only without explanations, metadata, or translations."
+                        )
+                    ),
+                    types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav"),
+                ],
+            )
+        ],
+    )
+
+    return response.text or ""
+
+
+def _transcribe_with_elevenlabs(audio_path: Path, model_id: str) -> str:
+    """Transcribe Armenian audio with ElevenLabs STT."""
     client = _get_elevenlabs_client()
     with audio_path.open("rb") as audio_file:
         transcription = client.speech_to_text.convert(
@@ -242,8 +283,30 @@ def transcribe_armenian(audio_path: Path, model_id: str = "scribe_v2") -> str:
         )
 
     text = getattr(transcription, "text", None)
-    if not text:
-        text = str(transcription)
+    if text:
+        return str(text)
+    return str(transcription)
+
+
+def transcribe_armenian(
+    audio_path: Path,
+    provider: SttProvider = DEFAULT_STT_PROVIDER,
+    model_id: str | None = None,
+) -> str:
+    """Transcribe an audio file and return Armenian text only."""
+    provider_name = provider.strip().lower()
+    if provider_name == "gemini":
+        text = _transcribe_with_gemini(
+            audio_path=audio_path,
+            model_id=model_id or GEMINI_STT_MODEL,
+        )
+    elif provider_name == "elevenlabs":
+        text = _transcribe_with_elevenlabs(
+            audio_path=audio_path,
+            model_id=model_id or ELEVENLABS_STT_MODEL,
+        )
+    else:
+        raise ValueError(f"Unsupported STT provider: {provider}")
 
     cleaned = text.strip()
     if not cleaned:

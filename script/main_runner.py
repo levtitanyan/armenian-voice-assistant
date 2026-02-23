@@ -8,12 +8,17 @@ from datetime import datetime
 from pathlib import Path
 
 try:
-    from .STT import StopConversationRequested, record_voice_to_wav, transcribe_armenian
+    from .STT import (
+        DEFAULT_STT_PROVIDER,
+        StopConversationRequested,
+        record_voice_to_wav,
+        transcribe_armenian,
+    )
     from .TTS import play_prebuilt_audio, speak_armenian
     from .common import PROJECT_ROOT, display_path, resolve_project_path
     from .gemini import find_similar_faq_for_question, gemini_answer_armenian
 except ImportError:  # pragma: no cover - supports direct script execution
-    from STT import StopConversationRequested, record_voice_to_wav, transcribe_armenian
+    from STT import DEFAULT_STT_PROVIDER, StopConversationRequested, record_voice_to_wav, transcribe_armenian
     from TTS import play_prebuilt_audio, speak_armenian
     from common import PROJECT_ROOT, display_path, resolve_project_path
     from gemini import find_similar_faq_for_question, gemini_answer_armenian
@@ -39,6 +44,12 @@ def parse_args() -> argparse.Namespace:
         "--manual-recording",
         action="store_true",
         help="Use Enter/Esc manual recording mode instead of automatic speech detection.",
+    )
+    parser.add_argument(
+        "--stt-provider",
+        choices=["gemini", "elevenlabs"],
+        default=DEFAULT_STT_PROVIDER,
+        help=f"Speech-to-text provider (default: {DEFAULT_STT_PROVIDER}).",
     )
     return parser.parse_args()
 
@@ -155,6 +166,7 @@ def main() -> None:
 
     print(f"Loaded knowledge JSON: {display_path(knowledge_path)}")
     print(f"Conversation folder: {display_path(conversation_dir)}")
+    print(f"STT provider: {args.stt_provider}")
     print("Loop started.")
     if args.manual_recording:
         print("Manual mode: Press Enter to finish a turn. Press Esc while recording to stop.")
@@ -180,7 +192,10 @@ def main() -> None:
                 print("Stopping assistant loop.")
                 break
 
-            user_text = transcribe_armenian(recorded_path)
+            user_text = transcribe_armenian(
+                recorded_path,
+                provider=args.stt_provider,
+            )
             if not user_text:
                 print("Empty transcription. Try again.")
                 continue

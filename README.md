@@ -2,7 +2,7 @@
 
 Armenian HR assistant pipeline:
 1. Record user voice from microphone.
-2. Transcribe speech with ElevenLabs STT.
+2. Transcribe speech with selectable STT provider (Gemini or ElevenLabs).
 3. Use Gemini to match the transcribed question against `questions` in `data/faq.json`.
 4. If a FAQ match is found, use that FAQ answer.
 5. If no match is found, generate an answer with Gemini using `data/knowledge.json` context.
@@ -35,6 +35,13 @@ brew install ffmpeg
 
 ```bash
 .venv/bin/python script/main_runner.py
+```
+
+Choose STT provider at launch:
+
+```bash
+.venv/bin/python script/main_runner.py --stt-provider gemini
+.venv/bin/python script/main_runner.py --stt-provider elevenlabs
 ```
 
 Loop behavior:
