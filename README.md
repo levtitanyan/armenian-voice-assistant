@@ -160,6 +160,7 @@ git diff --cached --numstat
 |---|---|
 | `script/main_runner.py` | Main loop runner using knowledge JSON + current-session conversation awareness |
 | `script/build_dataset.py` | Reuse/create TXT transcripts and build `data/knowledge.json` |
+| `script/json_analysis.py` | Analyze `data/knowledge.json` and produce HR answer summary/playbook |
 | `script/STT.py` | Microphone recording and ElevenLabs speech-to-text |
 | `script/TTS.py` | ElevenLabs text-to-speech synthesis/playback |
 | `script/gemini.py` | Gemini API call wrapper and Armenian response policy |
